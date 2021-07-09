@@ -92,26 +92,14 @@ def init():
 @ti.kernel
 def substep(g: ti.f32, mass: ti.f32, is_collision: ti.i32, normal: ti.ext_arr(), dis: ti.f32, dir:ti.f32, new_p: ti.ext_arr(), new_v: ti.ext_arr()):
     for i in ti.grouped(p):
-        # print(p[i])
         p[i] = ti.Vector([new_p[0],new_p[1],new_p[2]])
         v[i] = ti.Vector([new_v[0],new_v[1],new_v[2]])
         acc[i] = g * mass * ti.Vector([0.0, -1, 0.0])
         if is_collision == 1:
-            # print("before")
-            # print(acc[i])
-            # cos = (225 + 281.25 - 56.25)/(2*15*7.5* ti.sqrt(5))
-            # K = g * cos / dir / dis
-            # print(K)
             acc[i] += 1600 * mass * dir * dis * ti.Vector([normal[0], normal[1], normal[2]])
-
-
-        #     acc[i] +=  (g * mass + mass * v[i].norm()/dt) * cos * ti.Vector([normal[0], normal[1], normal[2]])
-            # print("after")
-            # print(acc[i])
         acc[i] /= mass
         v[i] += acc[i] * dt
         p[i] += dt * v[i]
-        # print(p[i])
 
 def vector_angle(vec):
     ground = np.array([vec[0], 0, vec[2]])
@@ -130,6 +118,18 @@ def normal_plane_curve(plane, normal_plane, v):
         return solve([normal_plane, plane], [y,x,z])
     else:
         return solve([normal_plane, plane], [x,y,z])
+def curvature_collision_point(o, first, second, vec):
+    x_v = vec[0]
+    z_v = vec[2]
+    a = x_v + z_v
+    b = 2*(x_v*(second[0]-o[0])+z_v*(second[2]-o[2]))
+    c = -((o[0]-first[0])**2+(o[1]-first[1])**2+(o[2]-first[2])**2-(o[1]-second[1])**2-o[0]**2-o[2]**2-second[0]**2-second[2]**2+2*o[0]*second[0]+2*o[1]*second[1])
+    t1 = (-b + sqrt(b*b-4*a*c))/2*a
+    t2 = (-b - sqrt(b*b-4*a*c))/2*a
+    if abs(t1) < abs(t2):
+        return np.array([second[0]+vec[0]*t1, second[1], second[2]+vec[2]*t1])
+    else:
+        return np.array([second[0]+vec[0]*t2, second[1], second[2]+vec[2]*t2])
 
 def tina_substep():
     global is_collision
@@ -156,12 +156,9 @@ def tina_substep():
             for a in collision:
                 midpoint = a[j].subs(x, formula.midpoint[0]).subs(y, formula.midpoint[1]).subs(z, formula.midpoint[2])
                 if not midpoint.is_real:
-                    # print(a[j])
-                    # print("not real")
                     F = float(formula.mass * gravity)
                     is_collision = 0
                     last_point = collision_trace[collision_trace.shape[0]-1]
-                    # vel = [v[0][0], v[0][1], v[0][2]]
                     x_val = last_point[0] + new_v[0]*t - x
                     y_val = last_point[1] + new_v[1]*t - 4.9*t*t - y
                     z_val = last_point[2] + new_v[2]*t - z
@@ -188,6 +185,7 @@ def tina_substep():
             collision_trace = np.append(collision_trace, np.array([collision_point]), axis=0)
             line.set_lines(collision_trace)
         surface_point, direction, distance = formula.Surface_Point(plane, numpy_normal, collision_point)
+    
     else:
         last_point = surface_point[:]
         surface_point.clear()
@@ -235,26 +233,33 @@ def tina_substep():
             new_point2.append(float(surface_point2[2]))
         new_direc = np.array([new_point2[0]-new_point1[0],new_point2[1]-new_point1[1],new_point2[2]-new_point1[2]])
         new_direc = new_direc / np.linalg.norm(new_direc)
-        new_normal = np.cross(new_direc, [0, -1, 0])
-        new_normal = np.cross(new_direc, new_normal)
-        new_normal = new_normal / np.linalg.norm(new_normal)
         second_angle = vector_angle(new_direc)
         angle_diff = second_angle - first_angle
         new_vec = np.zeros([3])
         for i in range(3):
             new_vec[i] = new_point1[i] - last_point[i]
+
         curvature = angle_diff / np.linalg.norm(new_vec)
-        # print(curvature)
 
         new_surface_point = []
-        if angle_diff != 0:
-            new_surface_point.append(float(surface_point[0]+numpy_normal[0]-new_normal[0]))
-            new_surface_point.append(float(surface_point[1]+numpy_normal[1]-new_normal[1]))
-            new_surface_point.append(float(surface_point[2]+numpy_normal[2]-new_normal[2]))
+        if abs(angle_diff) > 0.00001:
+            o = []
+            o.append(last_point[0]+numpy_normal[0]*1/curvature)
+            o.append(last_point[1]+numpy_normal[1]*1/curvature)
+            o.append(last_point[2]+numpy_normal[2]*1/curvature)
+            new_point = curvature_collision_point(o, last_point, surface_point, new_v)
+            new_normal = np.array([o[0]-new_point[0], o[1]-new_point[1], o[2]-new_point[2]])
+            new_normal = new_normal / np.linalg.norm(new_normal)
             surface_point.clear()
-            surface_point.append(new_surface_point[0])
-            surface_point.append(new_surface_point[1])
-            surface_point.append(new_surface_point[2])
+            surface_point.append(float(new_point[0]-new_normal[0]*formula.r))
+            surface_point.append(float(new_point[1]-new_normal[1]*formula.r))
+            surface_point.append(float(new_point[2]-new_normal[2]*formula.r))
+            if fra == -1:
+                print(fra)
+                print(first_angle)
+                print(second_angle)
+                print(surface_point)
+                print(new_normal)
             numpy_normal = new_normal[:]
 
         collision_point, new_direction, new_distance = formula.Plane_Point(plane, numpy_normal, surface_point)
@@ -264,35 +269,11 @@ def tina_substep():
         if new_direction == 1 and inited == 1 and (new_distance > distance):
             new_p = np.array([new_p[0]-new_v[0]*dt,new_p[1]-new_v[1]*dt,new_p[2]-new_v[2]*dt])
 
-            # direct_vec = np.cross(numpy_normal, [0, -1, 0])
-            # normal_plane = direct_vec[0]*(x-new_p[0])+direct_vec[1]*(y-new_p[1])+direct_vec[2]*(z-new_p[2])
-            # direct_vec = np.cross(direct_vec, numpy_normal)
-            # direct_vec = direct_vec / np.linalg.norm(direct_vec)
-            # new_v = np.dot([v[0][0],v[0][1],v[0][2]], direct_vec) * direct_vec
-            # new_p[0] = new_p[0]+new_v[0]*dt
-            # new_p[1] = new_p[1]+new_v[1]*dt
-            # new_p[2] = new_p[2]+new_v[2]*dt
-            # collision_point = collision_trace[len(collision_trace)-1] + new_v*dt
-
-
             temp_p = collision_point+numpy_normal*(0.5 - distance)
             new_v = (temp_p - new_p)/dt
-            if fra == -1 and new_v[0]>0 and new_v[1]>0:
-                fra = gui.frame
-                print(fra)
-                print(numpy_normal)
-                print(new_p)
-                print(temp_p)
-                print(new_v)
-                print(collision_point)
-                print(surface_point)
-                print(distance)
-                print(new_distance)
             temp_p = temp_p.astype(np.float32)
             new_v = new_v.astype(np.float32)
-            # print(new_v)
             new_p = temp_p[:]
-
             new_distance = distance
 
 
@@ -341,9 +322,9 @@ while gui.running:
         gui.show()
 
     if gui.frame >= (240*time_k):
-        print(timedelta(seconds=time.monotonic() - start_time))
         np.set_printoptions(threshold=np.inf)
-        print(collision_trace)
+        np.savetxt('collision_trace.txt', collision_trace)
+        print(timedelta(seconds=time.monotonic() - start_time))
         break
 
     if not gui.is_pressed(gui.SPACE):
