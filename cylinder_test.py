@@ -1,6 +1,7 @@
 from platform import dist
 from sympy.core import symbol
 from sympy.ntheory.residue_ntheory import _discrete_log_trial_mul
+from sympy.solvers.diophantine.diophantine import length
 import taichi as ti
 import tina
 import math
@@ -12,8 +13,8 @@ from datetime import timedelta
 ti.init(ti.gpu)
 
 gravity = 9.8
-frac = 0.1
-time_k = 10
+frac = 1
+time_k = 1
 dt = 5e-4 / time_k
 steps = 30
 angle = 90 / 180 * math.pi
@@ -23,7 +24,8 @@ NN = N, N
 W = 30
 L = W / N
 x, y, z, t = symbols('x,y,z,t')
-plane = -1 * x + 2 * y
+#plane = -1 * x + 2 * y
+plane = x*x - 14*y
 friction = 0.5
 theta = 0.0
 is_collision = 0
@@ -82,7 +84,8 @@ def init():
         surface_x[i] = ti.Vector([m, 0.5*m, n])
         # print(surface_x[i])
     for i in ti.grouped(p):
-        p[i] = ti.Vector([7 - 0.5 / math.sqrt(5), 3.5 + 1 / math.sqrt(5), 0.0])
+        #p[i] = ti.Vector([7 - 0.5 / math.sqrt(5), 3.5 + 1 / math.sqrt(5), 0.0])
+        p[i] = ti.Vector([7 - 0.5 / math.sqrt(2), 3.5 + 0.5 / math.sqrt(2), 0.0])
         #p[i] = ti.Vector([7 - 0.5 / math.sqrt(5), 4 + 1 / math.sqrt(5), 0.0])
         #x[i] = ti.Vector([7, 3.5, 0.0])
         v[i] = ti.Vector([0.0, 0.0, 0.0])
@@ -96,7 +99,7 @@ def substep(g: ti.f32, mass: ti.f32, is_collision: ti.i32, normal: ti.ext_arr(),
         v[i] = ti.Vector([new_v[0],new_v[1],new_v[2]])
         acc[i] = g * mass * ti.Vector([0.0, -1, 0.0])
         if is_collision == 1:
-            acc[i] += 1600 * mass * dir * dis * ti.Vector([normal[0], normal[1], normal[2]])
+            acc[i] += 3200 * mass * dir * dis * ti.Vector([normal[0], normal[1], normal[2]])
         acc[i] /= mass
         v[i] += acc[i] * dt
         p[i] += dt * v[i]
@@ -107,25 +110,27 @@ def vector_angle(vec):
 
 def normal_plane_curve(plane, normal_plane, v):
     if abs(v[0]) > abs(v[1]) >= abs(v[2]):
-        return solve([normal_plane, plane], [z,y,x])
-    elif abs(v[0]) > abs(v[2]) >= abs(v[1]):
-        return solve([normal_plane, plane], [y,z,x])
-    elif abs(v[1]) > abs(v[0]) >= abs(v[2]):
-        return solve([normal_plane, plane], [z,x,y])
-    elif abs(v[1]) > abs(v[2]) >= abs(v[0]):
-        return solve([normal_plane, plane], [x,z,y])
-    elif abs(v[2]) > abs(v[0]) >= abs(v[1]):
-        return solve([normal_plane, plane], [y,x,z])
-    else:
         return solve([normal_plane, plane], [x,y,z])
+    elif abs(v[0]) > abs(v[2]) >= abs(v[1]):
+        return solve([normal_plane, plane], [x,z,y])
+    elif abs(v[1]) > abs(v[0]) >= abs(v[2]):
+        return solve([normal_plane, plane], [y,x,z])
+    elif abs(v[1]) > abs(v[2]) >= abs(v[0]):
+        return solve([normal_plane, plane], [y,z,x])
+    elif abs(v[2]) > abs(v[0]) >= abs(v[1]):
+        return solve([normal_plane, plane], [z,x,y])
+    else:
+        return solve([normal_plane, plane], [z,y,x])
+
 def curvature_collision_point(o, first, second, vec):
     x_v = vec[0]
     z_v = vec[2]
-    a = x_v + z_v
+    a = x_v*x_v + z_v*z_v
     b = 2*(x_v*(second[0]-o[0])+z_v*(second[2]-o[2]))
     c = -((o[0]-first[0])**2+(o[1]-first[1])**2+(o[2]-first[2])**2-(o[1]-second[1])**2-o[0]**2-o[2]**2-second[0]**2-second[2]**2+2*o[0]*second[0]+2*o[1]*second[1])
-    t1 = (-b + sqrt(b*b-4*a*c))/2*a
-    t2 = (-b - sqrt(b*b-4*a*c))/2*a
+    d = sqrt(b*b-4*a*c)
+    t1 = (-b + d)/2*a
+    t2 = (-b - d)/2*a
     if abs(t1) < abs(t2):
         return np.array([second[0]+vec[0]*t1, second[1], second[2]+vec[2]*t1])
     else:
@@ -143,9 +148,10 @@ def tina_substep():
     formula = tina.PrimitiveFormulation(tmodel, 10)
     if inited == 1:
         new_p = p.to_numpy()[0]
-        new_v = np.array([v[0][0], v[0][1], v[0][2]])
+        new_v = v.to_numpy()[0]
     else:
-        new_p = np.array([7 - 0.5 / math.sqrt(5), 3.5 + 1 / math.sqrt(5), 0.0]) + p.to_numpy()[0]
+        #new_p = np.array([7 - 0.5 / math.sqrt(5), 3.5 + 1 / math.sqrt(5), 0.0]) + p.to_numpy()[0]
+        new_p = np.array([7 - 0.5 / math.sqrt(2), 3.5 + 0.5 / math.sqrt(2), 0.0]) + p.to_numpy()[0]
         new_v = np.array([0,0,0]) + v.to_numpy()[0]
         inited = 1
         return
@@ -153,33 +159,17 @@ def tina_substep():
         collision = formula.Calculate_Collision(plane)
         for j in range(3):
             sum = 0
-            for a in collision:
-                midpoint = a[j].subs(x, formula.midpoint[0]).subs(y, formula.midpoint[1]).subs(z, formula.midpoint[2])
+            for i in range(2):
+                midpoint = collision[i][j].subs(x, formula.midpoint[0]).subs(y, formula.midpoint[1]).subs(z, formula.midpoint[2])
                 if not midpoint.is_real:
                     F = float(formula.mass * gravity)
                     is_collision = 0
-                    last_point = collision_trace[collision_trace.shape[0]-1]
-                    x_val = last_point[0] + new_v[0]*t - x
-                    y_val = last_point[1] + new_v[1]*t - 4.9*t*t - y
-                    z_val = last_point[2] + new_v[2]*t - z
-                    result = solve([plane,x_val,y_val,z_val], [t,x,y,z])
-                    if not result[0][0].is_real:
-                        return
-                    if result[0][0] > result[1][0]:
-                        next_colli_t = int(result[0][0]/dt + 1)
-                    else:
-                        next_colli_t = int(result[1][0]/dt + 1)
-                    print(next_colli_t)
-                    collision_point.clear()
-                    collision_point.append(last_point[0] + new_v[0]*next_colli_t*dt)
-                    collision_point.append(last_point[1] + new_v[1]*next_colli_t*dt - 4.9*next_colli_t*dt*next_colli_t*dt)
-                    collision_point.append(last_point[2] + new_v[2]*next_colli_t*dt)
-                    next_colli_p = np.append(next_colli_p, np.array([collision_point]), axis=0)
-                    predict_line.set_lines(next_colli_p)
                     return
                 sum += midpoint
-            sum /= len(collision)
+            sum /= 2
             collision_point.append(float(sum))
+        numpy_normal = np.array([-2*collision_point[0], 14, 0])
+        numpy_normal = numpy_normal / np.linalg.norm(numpy_normal)    
         is_collision = 1
         if not any(np.equal(collision_trace, collision_point).all(1)):
             collision_trace = np.append(collision_trace, np.array([collision_point]), axis=0)
@@ -189,93 +179,231 @@ def tina_substep():
     else:
         last_point = surface_point[:]
         surface_point.clear()
-        surface_point.append(last_point[0]+v[0][0]*dt)
-        surface_point.append(last_point[1]+v[0][1]*dt)
-        surface_point.append(last_point[2]+v[0][2]*dt)
+        surface_point.append(new_p[0]-numpy_normal[0]*0.5)
+        surface_point.append(new_p[1]-numpy_normal[1]*0.5)
+        surface_point.append(new_p[2]-numpy_normal[2]*0.5)
 
         direct_vec = np.cross(numpy_normal, [0, -1, 0])
         normal_plane = direct_vec[0]*(x-new_p[0])+direct_vec[1]*(y-new_p[1])+direct_vec[2]*(z-new_p[2])
         direct_vec = np.cross(direct_vec, numpy_normal)
         direct_vec = direct_vec / np.linalg.norm(direct_vec)
-        first_angle = vector_angle(direct_vec)
 
 
         new_point1 = []
         new_point2 = []
-        result = normal_plane_curve(plane, normal_plane, new_v)
-        if 'x' in result:
-            new_point1.append(float(result['x'].subs(x, surface_point[0]).subs(y, surface_point[1]).subs(z, surface_point[2])))
+        result = solve([normal_plane, plane], [y])
+
+        if isinstance(result, list):
+            if surface_point[0] >= 0:
+                x_val = result[1][0].subs(x, surface_point[0]).subs(y, surface_point[1]).subs(z, surface_point[2])
+                y_val = result[1][1].subs(x, surface_point[0]).subs(y, surface_point[1]).subs(z, surface_point[2])
+                z_val = result[1][2].subs(x, surface_point[0]).subs(y, surface_point[1]).subs(z, surface_point[2])
+                if x_val.is_real and y_val.is_real and z_val.is_real:
+                    new_point1.append(float(x_val))
+                    new_point1.append(float(y_val))
+                    new_point1.append(float(z_val))
+                else:
+                    result = solve([normal_plane, plane], [z,y,x])
+                    x_val = result[1][2].subs(x, surface_point[0]).subs(y, surface_point[1]).subs(z, surface_point[2])
+                    y_val = result[1][1].subs(x, surface_point[0]).subs(y, surface_point[1]).subs(z, surface_point[2])
+                    z_val = result[1][0].subs(x, surface_point[0]).subs(y, surface_point[1]).subs(z, surface_point[2])
+                    new_point1.append(float(x_val))
+                    new_point1.append(float(y_val))
+                    new_point1.append(float(z_val))
+
+            else:
+                x_val = result[0][0].subs(x, surface_point[0]).subs(y, surface_point[1]).subs(z, surface_point[2])
+                y_val = result[0][1].subs(x, surface_point[0]).subs(y, surface_point[1]).subs(z, surface_point[2])
+                z_val = result[0][2].subs(x, surface_point[0]).subs(y, surface_point[1]).subs(z, surface_point[2])
+                if x_val.is_real and y_val.is_real and z_val.is_real:
+                    new_point1.append(float(x_val))
+                    new_point1.append(float(y_val))
+                    new_point1.append(float(z_val))
+                else:
+                    result = solve([normal_plane, plane], [z,y,x])
+                    x_val = result[0][2].subs(x, surface_point[0]).subs(y, surface_point[1]).subs(z, surface_point[2])
+                    y_val = result[0][1].subs(x, surface_point[0]).subs(y, surface_point[1]).subs(z, surface_point[2])
+                    z_val = result[0][0].subs(x, surface_point[0]).subs(y, surface_point[1]).subs(z, surface_point[2])
+                    new_point1.append(float(x_val))
+                    new_point1.append(float(y_val))
+                    new_point1.append(float(z_val))
         else:
-            new_point1.append(float(surface_point[0]))
-        if 'y' in result:
-            new_point1.append(float(result['y'].subs(x, surface_point[0]).subs(y, surface_point[1]).subs(z, surface_point[2])))
-        else:
-            new_point1.append(float(surface_point[1]))
-        if 'z' in result:
-            new_point1.append(float(result['z'].subs(x, surface_point[0]).subs(y, surface_point[1]).subs(z, surface_point[2])))
-        else:
-            new_point1.append(float(surface_point[2]))
+            if x in result:
+                new_point1.append(float(result[x].subs(x, surface_point[0]).subs(y, surface_point[1]).subs(z, surface_point[2])))
+            else:
+                new_point1.append(float(surface_point[0]))
+            if y in result:
+                new_point1.append(float(result[y].subs(x, surface_point[0]).subs(y, surface_point[1]).subs(z, surface_point[2])))
+            else:
+                new_point1.append(float(surface_point[1]))
+            if z in result:
+                new_point1.append(float(result[z].subs(x, surface_point[0]).subs(y, surface_point[1]).subs(z, surface_point[2])))
+            else:
+                new_point1.append(float(surface_point[2]))
         surface_point2 = []
-        surface_point2.append(new_point1[0]+direct_vec[0]*dt/1000)
-        surface_point2.append(new_point1[1]+direct_vec[1]*dt/1000)
-        surface_point2.append(new_point1[2]+direct_vec[2]*dt/1000)
-        if 'x' in result:
-            new_point2.append(float(result['x'].subs(x, surface_point2[0]).subs(y, surface_point2[1]).subs(z, surface_point2[2])))
+        surface_point2.append(new_point1[0]+new_v[0]*dt)
+        surface_point2.append(new_point1[1]+new_v[1]*dt)
+        surface_point2.append(new_point1[2]+new_v[2]*dt)
+        if isinstance(result, list):
+            if surface_point2[0] >= 0:
+                x_val = result[1][0].subs(x, surface_point2[0]).subs(y, surface_point2[1]).subs(z, surface_point2[2])
+                y_val = result[1][1].subs(x, surface_point2[0]).subs(y, surface_point2[1]).subs(z, surface_point2[2])
+                z_val = result[1][2].subs(x, surface_point2[0]).subs(y, surface_point2[1]).subs(z, surface_point2[2])
+                if x_val.is_real and y_val.is_real and z_val.is_real:
+                    new_point2.append(float(x_val))
+                    new_point2.append(float(y_val))
+                    new_point2.append(float(z_val))
+                else:
+                    result = solve([normal_plane, plane], [z,y,x])
+                    x_val = result[1][2].subs(x, surface_point2[0]).subs(y, surface_point2[1]).subs(z, surface_point2[2])
+                    y_val = result[1][1].subs(x, surface_point2[0]).subs(y, surface_point2[1]).subs(z, surface_point2[2])
+                    z_val = result[1][0].subs(x, surface_point2[0]).subs(y, surface_point2[1]).subs(z, surface_point2[2])
+                    new_point2.append(float(x_val))
+                    new_point2.append(float(y_val))
+                    new_point2.append(float(z_val))
+            else:
+                x_val = result[0][0].subs(x, surface_point2[0]).subs(y, surface_point2[1]).subs(z, surface_point2[2])
+                y_val = result[0][1].subs(x, surface_point2[0]).subs(y, surface_point2[1]).subs(z, surface_point2[2])
+                z_val = result[0][2].subs(x, surface_point2[0]).subs(y, surface_point2[1]).subs(z, surface_point2[2])
+                if x_val.is_real and y_val.is_real and z_val.is_real:
+                    new_point2.append(float(x_val))
+                    new_point2.append(float(y_val))
+                    new_point2.append(float(z_val))
+                else:
+                    result = solve([normal_plane, plane], [z,y,x])
+                    x_val = result[0][2].subs(x, surface_point2[0]).subs(y, surface_point2[1]).subs(z, surface_point2[2])
+                    y_val = result[0][1].subs(x, surface_point2[0]).subs(y, surface_point2[1]).subs(z, surface_point2[2])
+                    z_val = result[0][0].subs(x, surface_point2[0]).subs(y, surface_point2[1]).subs(z, surface_point2[2])
+                    new_point2.append(float(x_val))
+                    new_point2.append(float(y_val))
+                    new_point2.append(float(z_val))
         else:
-            new_point2.append(float(surface_point2[0]))
-        if 'y' in result:
-            new_point2.append(float(result['y'].subs(x, surface_point2[0]).subs(y, surface_point2[1]).subs(z, surface_point2[2])))
-        else:
-            new_point2.append(float(surface_point2[1]))
-        if 'z' in result:
-            new_point2.append(float(result['z'].subs(x, surface_point2[0]).subs(y, surface_point2[1]).subs(z, surface_point2[2])))
-        else:
-            new_point2.append(float(surface_point2[2]))
+            if x in result:
+                new_point2.append(float(result[x].subs(x, surface_point2[0]).subs(y, surface_point2[1]).subs(z, surface_point2[2])))
+            else:
+                new_point2.append(float(surface_point2[0]))
+            if y in result:
+                new_point2.append(float(result[y].subs(x, surface_point2[0]).subs(y, surface_point2[1]).subs(z, surface_point2[2])))
+            else:
+                new_point2.append(float(surface_point2[1]))
+            if z in result:
+                new_point2.append(float(result[z].subs(x, surface_point2[0]).subs(y, surface_point2[1]).subs(z, surface_point2[2])))
+            else:
+                new_point2.append(float(surface_point2[2]))
         new_direc = np.array([new_point2[0]-new_point1[0],new_point2[1]-new_point1[1],new_point2[2]-new_point1[2]])
         new_direc = new_direc / np.linalg.norm(new_direc)
+        if not (direct_vec[0]*new_direc[0]>=0 and direct_vec[2]*new_direc[2]>=0):
+            direct_vec = direct_vec*-1
+        first_angle = vector_angle(direct_vec)
         second_angle = vector_angle(new_direc)
-        angle_diff = second_angle - first_angle
+        angle_diff = 0.0
+        if direct_vec[1] * new_direc[1] < 0:
+            angle_diff = first_angle + second_angle
+        elif direct_vec[1] < 0:
+            angle_diff = first_angle - second_angle
+        else:
+            angle_diff = second_angle - first_angle
         new_vec = np.zeros([3])
         for i in range(3):
             new_vec[i] = new_point1[i] - last_point[i]
 
+
         curvature = angle_diff / np.linalg.norm(new_vec)
+        # if new_direc[1] > 0:
+        #     fra = gui.frame
+        #     print("first_angle: ",first_angle)
+        #     print("second_angle: ",second_angle)
+        #     print("angle_diff: ",angle_diff)
+        #     print(curvature)
+        # print("direct_vec: ", direct_vec)
+        # print("new_direc: ", new_direc)
+        # print("first_angle: ",first_angle)
+        # print("second_angle: ",second_angle)
+        # print("angle_diff: ",angle_diff)
+        # print(curvature)
+        # input("Press Enter to continue...")
+        # print(direct_vec)
+        # print(new_direc)
+        # print(type(result))
+        # print(result)
+        # print(surface_point)
+        # print(new_point1)
+        # print(surface_point2)
+        # print(new_point2)
+        # print(first_angle)
+        # print(second_angle)
+        # print(curvature)
+        # input("Press Enter to continue...")
 
         new_surface_point = []
-        if abs(angle_diff) > 0.00001:
-            o = []
-            o.append(last_point[0]+numpy_normal[0]*1/curvature)
-            o.append(last_point[1]+numpy_normal[1]*1/curvature)
-            o.append(last_point[2]+numpy_normal[2]*1/curvature)
-            new_point = curvature_collision_point(o, last_point, surface_point, new_v)
-            new_normal = np.array([o[0]-new_point[0], o[1]-new_point[1], o[2]-new_point[2]])
-            new_normal = new_normal / np.linalg.norm(new_normal)
+        if  angle_diff > 1e-6:
+            collision_point.append(float(last_point[0]+numpy_normal[0]*distance))
+            collision_point.append(float(last_point[1]+numpy_normal[1]*distance))
+            collision_point.append(float(last_point[2]+numpy_normal[2]*distance))
+            o = np.array([float(collision_point[0]+numpy_normal[0]*1/curvature),float(collision_point[1]+numpy_normal[1]*1/curvature),float(collision_point[2]+numpy_normal[2]*1/curvature)])
+            # o.append(collision_point[0]+numpy_normal[0]*1/curvature)
+            # o.append(collision_point[1]+numpy_normal[1]*1/curvature)
+            # o.append(collision_point[2]+numpy_normal[2]*1/curvature)
+            collision_point.clear()
+            new_normal = np.array([float(o[0]-new_p[0]), float(o[1]-new_p[1]), float(o[2]-new_p[2])])
+            new_distance = np.linalg.norm(new_normal)
+            # print(surface_point)
+            # print(new_point)
+            # print(new_normal)
+            new_normal = new_normal / new_distance
+            # if new_distance + formula.r - 1/curvature > distance:
+            #     temp_p = o + new_normal*(1/curvature - formula.r + distance)
+            #     new_v = (temp_p - new_p)/dt
+            #     temp_p = temp_p.astype(np.float32)
+            #     new_v = new_v.astype(np.float32)
+            #     new_p = temp_p[:]
             surface_point.clear()
-            surface_point.append(float(new_point[0]-new_normal[0]*formula.r))
-            surface_point.append(float(new_point[1]-new_normal[1]*formula.r))
-            surface_point.append(float(new_point[2]-new_normal[2]*formula.r))
-            if fra == -1:
-                print(fra)
-                print(first_angle)
-                print(second_angle)
-                print(surface_point)
-                print(new_normal)
+            surface_point.append(float(new_p[0]-new_normal[0]*formula.r))
+            surface_point.append(float(new_p[1]-new_normal[1]*formula.r))
+            surface_point.append(float(new_p[2]-new_normal[2]*formula.r))
+            # if fra == -1:
+            #     fra = gui.frame
+            #     print(curvature)
+            #     print(o)
+            #     print(surface_point)
+            #     print(new_normal)
+            # print(curvature)
+            # print(o)
+            # print(surface_point)
+            # print(new_normal)
             numpy_normal = new_normal[:]
-
+            # print(numpy_normal)
+            # return
         collision_point, new_direction, new_distance = formula.Plane_Point(plane, numpy_normal, surface_point)
 
-        # if surface_point[0] <= -8:
-        #     new_direction = -1
         if new_direction == 1 and inited == 1 and (new_distance > distance):
-            new_p = np.array([new_p[0]-new_v[0]*dt,new_p[1]-new_v[1]*dt,new_p[2]-new_v[2]*dt])
+            new_p = np.array([new_p[0]-new_v[0]*dt, new_p[1]-new_v[1]*dt, new_p[2]-new_v[2]*dt])
 
-            temp_p = collision_point+numpy_normal*(0.5 - distance)
+            temp_p = collision_point+numpy_normal*(0.5-distance)
             new_v = (temp_p - new_p)/dt
+            # if (gui.frame/time_k) >= 20 and fra == -1:
+            #     fra = gui.frame
+            #     print(new_p)
+            #     print(temp_p)
+            #     print(collision_point)
+            #     print(surface_point)
+            #     print(new_v)
+            #     print(numpy_normal)
+            #     print(last_point)
+            #     print(angle_diff)
+            #     print(distance)
+            #     print(new_distance)
+            #     print(v[0][0])
+            #     print(v[0][1])
+            #     print(v[0][2])
+            surface_point.clear()
+            surface_point.append(collision_point[0]-numpy_normal[0]*distance)
+            surface_point.append(collision_point[1]-numpy_normal[1]*distance)
+            surface_point.append(collision_point[2]-numpy_normal[2]*distance)
+            
             temp_p = temp_p.astype(np.float32)
             new_v = new_v.astype(np.float32)
             new_p = temp_p[:]
-            new_distance = distance
-
 
         if not any(np.equal(collision_trace, collision_point).all(1)):
             collision_trace = np.append(collision_trace, np.array([collision_point]), axis=0)
@@ -296,6 +424,7 @@ shape = numpy_surface.shape
 numpy_surface = numpy_surface.reshape((shape[0]*shape[1], shape[2]))
 numpy_normal = np.cross(numpy_surface[0] - numpy_surface[1], numpy_surface[1] - numpy_surface[2])
 numpy_normal = numpy_normal / np.linalg.norm(numpy_normal)
+# print(numpy_normal)
 # normal.from_numpy(numpy_normal)
 F = 0
 formula = tina.PrimitiveFormulation(tmodel, 10)
