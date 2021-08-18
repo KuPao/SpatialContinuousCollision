@@ -1,4 +1,5 @@
 from platform import dist
+from mpmath.functions.rszeta import coef
 from sympy.core import symbol
 from sympy.ntheory.residue_ntheory import _discrete_log_trial_mul
 from sympy.solvers.diophantine.diophantine import length
@@ -137,7 +138,7 @@ def curvature_collision_point(o, first, second, vec):
         return np.array([second[0]+vec[0]*t2, second[1], second[2]+vec[2]*t2])
 
 def tina_substep():
-    global is_collision
+    global is_collision, formula
     global numpy_normal, surface_point, direction, distance
     global collision_trace, next_colli_p, next_colli_t
     global p, v, x, y, z, t, plane, dt
@@ -145,7 +146,7 @@ def tina_substep():
     global new_p, new_v, inited, fra
     collision_point = []
     # return
-    formula = tina.PrimitiveFormulation(tmodel, 10)
+
     if inited == 1:
         new_p = p.to_numpy()[0]
         new_v = v.to_numpy()[0]
@@ -156,6 +157,7 @@ def tina_substep():
         inited = 1
         return
     if is_collision == 0:
+        formula = tina.PrimitiveFormulation(tmodel, 10)
         collision = formula.Calculate_Collision(plane)
         for j in range(3):
             sum = 0
@@ -169,13 +171,13 @@ def tina_substep():
             sum /= 2
             collision_point.append(float(sum))
         numpy_normal = np.array([-2*collision_point[0], 14, 0])
-        numpy_normal = numpy_normal / np.linalg.norm(numpy_normal)    
+        numpy_normal = numpy_normal / np.linalg.norm(numpy_normal)
         is_collision = 1
         if not any(np.equal(collision_trace, collision_point).all(1)):
             collision_trace = np.append(collision_trace, np.array([collision_point]), axis=0)
             line.set_lines(collision_trace)
         surface_point, direction, distance = formula.Surface_Point(plane, numpy_normal, collision_point)
-    
+
     else:
         last_point = surface_point[:]
         surface_point.clear()
@@ -185,9 +187,39 @@ def tina_substep():
 
         direct_vec = np.cross(numpy_normal, [0, -1, 0])
         normal_plane = direct_vec[0]*(x-new_p[0])+direct_vec[1]*(y-new_p[1])+direct_vec[2]*(z-new_p[2])
+
+        intersect = plane
+        const = -direct_vec[0]*new_p[0]-direct_vec[1]*new_p[1]-direct_vec[2]*new_p[2]
+        if direct_vec[2] != 0:
+            subsititude = (direct_vec[0]*x+direct_vec[1]*y+const)/direct_vec[2]
+            intersect = intersect.subs(z, subsititude)
+        elif direct_vec[1] != 0:
+            subsititude = (direct_vec[0]*x+direct_vec[2]*z+const)/direct_vec[1]
+            intersect = intersect.subs(y, subsititude)
+        elif direct_vec[0] != 0:
+            subsititude = (direct_vec[1]*y+direct_vec[2]*z+const)/direct_vec[0]
+            intersect = intersect.subs(x, subsititude)
+        #print(intersect)
+        coeff_x = Poly(intersect,x).all_coeffs()
+        coeff_y = Poly(intersect,y).all_coeffs()
+        coeff_z = Poly(intersect,z).all_coeffs()
+        coeff_xy = intersect.coeff(x).coeff(y)
+        coeff_yz = intersect.coeff(y).coeff(z)
+        coeff_zx = intersect.coeff(z).coeff(x)
+        const = intersect.func(*[term for term in intersect.args if not term.free_symbols])
+        # coefficients = intersect.all_coeffs()
+        # print(type(coeff_x))
+        # print(type(coeff_x[2]))
+        # print(float(coeff_x[0]))
+        # print(type(float(coeff_y[0])))
+        # print(float(coeff_y[0]))
+        # print(coeff_z)
+        print(coeff_xy)
+        # print(coefficients)
+
+
         direct_vec = np.cross(direct_vec, numpy_normal)
         direct_vec = direct_vec / np.linalg.norm(direct_vec)
-
 
         new_point1 = []
         new_point2 = []
@@ -400,7 +432,7 @@ def tina_substep():
             surface_point.append(collision_point[0]-numpy_normal[0]*distance)
             surface_point.append(collision_point[1]-numpy_normal[1]*distance)
             surface_point.append(collision_point[2]-numpy_normal[2]*distance)
-            
+
             temp_p = temp_p.astype(np.float32)
             new_v = new_v.astype(np.float32)
             new_p = temp_p[:]
