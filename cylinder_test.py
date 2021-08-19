@@ -40,6 +40,16 @@ new_p = np.array([0,0,0])
 new_v = np.array([0,0,0])
 inited = 0
 fra = -1
+coeff_xx = 0.0
+coeff_yy = 0.0
+coeff_zz = 0.0
+coeff_xy = 0.0
+coeff_yz = 0.0
+coeff_zx = 0.0
+coeff_x = 0.0
+coeff_y = 0.0
+coeff_z = 0.0
+constant = 0.0
 
 scene = tina.Scene(smoothing=True, taa=False, ibl=True)
 
@@ -144,6 +154,9 @@ def tina_substep():
     global p, v, x, y, z, t, plane, dt
     global gui
     global new_p, new_v, inited, fra
+    global coeff_xx, coeff_yy, coeff_zz
+    global coeff_xy, coeff_yz, coeff_zx
+    global coeff_x, coeff_y, coeff_z, constant
     collision_point = []
     # return
 
@@ -200,22 +213,35 @@ def tina_substep():
             subsititude = (direct_vec[1]*y+direct_vec[2]*z+const)/direct_vec[0]
             intersect = intersect.subs(x, subsititude)
         #print(intersect)
-        coeff_x = Poly(intersect,x).all_coeffs()
-        coeff_y = Poly(intersect,y).all_coeffs()
-        coeff_z = Poly(intersect,z).all_coeffs()
-        coeff_xy = intersect.coeff(x).coeff(y)
-        coeff_yz = intersect.coeff(y).coeff(z)
-        coeff_zx = intersect.coeff(z).coeff(x)
-        const = intersect.func(*[term for term in intersect.args if not term.free_symbols])
-        # coefficients = intersect.all_coeffs()
-        # print(type(coeff_x))
-        # print(type(coeff_x[2]))
-        # print(float(coeff_x[0]))
-        # print(type(float(coeff_y[0])))
-        # print(float(coeff_y[0]))
-        # print(coeff_z)
+        poly_x = Poly(intersect,x).all_coeffs()
+        poly_y = Poly(intersect,y).all_coeffs()
+        poly_z = Poly(intersect,z).all_coeffs()
+        
+        coeff_xx = float(poly_x[0]) if len(poly_x)==3 else 0.0
+        coeff_yy = float(poly_y[0]) if len(poly_y)==3 else 0.0
+        coeff_zz = float(poly_z[0]) if len(poly_z)==3 else 0.0
+        coeff_x = intersect.coeff(x)
+        coeff_y = intersect.coeff(y)
+        coeff_z = intersect.coeff(z)
+        coeff_xy = float(coeff_x.coeff(y))
+        coeff_yz = float(coeff_y.coeff(z))
+        coeff_zx = float(coeff_z.coeff(x))
+        coeff_x = float(coeff_x) if coeff_x.is_number else float(coeff_x.func(*[term for term in coeff_x.args if not term.free_symbols]))
+        coeff_y = float(coeff_y) if coeff_y.is_number else float(coeff_y.func(*[term for term in coeff_y.args if not term.free_symbols]))
+        coeff_z = float(coeff_z) if coeff_z.is_number else float(coeff_z.func(*[term for term in coeff_z.args if not term.free_symbols]))
+        constant = float(intersect.func(*[term for term in intersect.args if not term.free_symbols]))
+        
+        print(coeff_xx)
+        print(coeff_yy)
+        print(coeff_zz)
         print(coeff_xy)
-        # print(coefficients)
+        print(coeff_yz)
+        print(coeff_zx)
+        print(coeff_x)
+        print(coeff_y)
+        print(coeff_z)
+        print(constant)
+        
 
 
         direct_vec = np.cross(direct_vec, numpy_normal)
